@@ -1,0 +1,82 @@
+---
+- hosts: all
+  sudo: yes
+  tasks:
+  - name: Currently installed version of Zabbix-agent
+    command: dpkg-query -W zabbix-agent
+    register: zabbix_agent_version
+    ignore_errors: yes
+
+  - debug: msg="{{ zabbix_agent_version.stdout }}"
+
+  - name: Checking the currently installed zabbix-agent and assiging 0 or 1
+    command: bash -c "/usr/bin/dpkg-query -W zabbix-agent | grep -i {{ zabbix_ver }}"
+    register: zabbix_agent_value
+    ignore_errors: yes
+
+  - debug: msg="{{ zabbix_agent_value.stdout }}"
+
+  - name: Output the currently installed zabbix-agent version to a variable
+    set_fact:
+      string_to_echo: "{{ zabbix_agent_version.stdout }}"
+
+  - name: Zabbix-agent service needs to be stopped
+    action: service name=zabbix-agent state=stopped
+    ignore_errors: yes
+    when: zabbix_agent_value.stdout == ""
+
+  - copy:
+      src: /etc/zabbix/zabbix_agentd.conf
+      dest: /tmp/zabbix_agentd.conf.old_bkp
+      owner: root
+      group: root
+      mode: 0644
+      backup: yes
+    when: zabbix_agent_value.stdout == ""
+
+  - name: Run command to purge Zabbix-release package
+    command: /usr/bin/dpkg -P zabbix-release
+    when: zabbix_agent_value.stdout == ""
+
+  - name: Run command to purge Zabbix-agent package
+    command: /usr/bin/dpkg -P zabbix-agent
+    ignore_errors: yes
+    when: zabbix_agent_value.stdout == ""
+
+  - name: Download latest Zabbix-release repo version i.e. 3.2-1
+    get_url:
+     url: http://repo.zabbix.com/zabbix/3.2/ubuntu/pool/main/z/zabbix-release/{{ zabbix_release_version }}
+     dest: /tmp/
+     mode: 0644
+    ignore_errors: yes
+    when: zabbix_agent_value.stdout == ""
+
+  - name: Ensure Zabbix-release package is installed
+    apt: deb="http://repo.zabbix.com/zabbix/3.2/ubuntu/pool/main/z/zabbix-release/{{ zabbix_release_version }}"
+    sudo: true
+    when: zabbix_agent_value.stdout == ""
+
+  - name: Run "apt-get update" & install zabbix-agent latest version 3.2.6-1
+    apt:
+      update_cache: yes
+      name: zabbix-agent=1:3.2.7-1+trusty
+      state: present
+    ignore_errors: yes
+    when: zabbix_agent_value.stdout == ""
+
+  - name: Configuring "zabbix_agentd.conf" file
+    template: src=zabbix_agentd.conf.j2 dest=/etc/zabbix/zabbix_agentd.conf
+    tags: configuration
+    when: zabbix_agent_value.stdout == ""
+
+  - name: Restarting Zabbix-agent service
+    service: name=zabbix-agent state=restarted
+    ignore_errors: yes
+    when: zabbix_agent_value.stdout == ""
+
+  - name: Verify the newly installed version of Zabbix-agent
+    command: dpkg-query -W zabbix-agent
+    register: current_zabbix_agent
+
+  - debug: msg="{{ current_zabbix_agent.stdout }}"
+
